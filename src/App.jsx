@@ -268,7 +268,7 @@ export default function App() {
               </div>
 
               <label className="group flex items-center gap-2 px-4 py-3 bg-white/5 hover:bg-white/10 border border-white/10 rounded-2xl transition-all duration-300 active:scale-95 cursor-pointer" title="Import Data">
-                <Upload size={18} className="text-gray-400 group-hover:text-blue-400 transition-colors" />
+                <Download size={18} className="text-gray-400 group-hover:text-blue-400 transition-colors" />
                 <span className="font-semibold text-sm hidden md:inline">Import</span>
                 <input type="file" accept=".json" onChange={handleImport} className="hidden" />
               </label>
@@ -278,7 +278,7 @@ export default function App() {
                 className="group flex items-center gap-2 px-4 py-3 bg-white/5 hover:bg-white/10 border border-white/10 rounded-2xl transition-all duration-300 active:scale-95"
                 title="Export Data"
               >
-                <Download size={18} className="text-gray-400 group-hover:text-green-400 transition-colors" />
+                <Upload size={18} className="text-gray-400 group-hover:text-green-400 transition-colors" />
                 <span className="font-semibold text-sm hidden md:inline">Export</span>
               </button>
               
