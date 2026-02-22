@@ -1,5 +1,27 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, Trash2, Edit2, Settings, Check, X, BookOpen, BarChart, Sparkles, Download, Upload } from 'lucide-react';
+import { Plus, Trash2, Edit2, Settings, Check, X, BookOpen, BarChart, Sparkles, LogIn, LogOut } from 'lucide-react';
+import { initializeApp } from 'firebase/app';
+import { getAuth, signInWithPopup, GoogleAuthProvider, signOut, onAuthStateChanged, signInWithCustomToken, signInAnonymously } from 'firebase/auth';
+import { getFirestore, doc, setDoc, onSnapshot } from 'firebase/firestore';
+
+// --- Firebase Configuration ---
+// Uses your custom config, with a fallback for the Canvas preview environment
+const customFirebaseConfig = {
+  apiKey: "AIzaSyD5oe40YjM_nQfYq_kkKgcXiI_cJ9Dti6A",
+  authDomain: "prepmap-4df1f.firebaseapp.com",
+  projectId: "prepmap-4df1f",
+  storageBucket: "prepmap-4df1f.firebasestorage.app",
+  messagingSenderId: "512816661626",
+  appId: "1:512816661626:web:45f1df91db043c7ddb4fc3"
+};
+
+const isCanvasEnv = typeof __firebase_config !== 'undefined';
+const firebaseConfig = isCanvasEnv ? JSON.parse(__firebase_config) : customFirebaseConfig;
+const app = initializeApp(firebaseConfig);
+const auth = getAuth(app);
+const db = getFirestore(app);
+const canvasAppId = typeof __app_id !== 'undefined' ? __app_id : 'prepmap';
+const googleProvider = new GoogleAuthProvider();
 
 const generateId = () => Math.random().toString(36).substr(2, 9);
 
@@ -11,21 +33,8 @@ const INITIAL_COLUMNS = [
 ];
 
 const INITIAL_SUBJECTS = [
-  {
-    id: 's1',
-    name: 'Physics',
-    chapters: [
-      { id: 'ch1', name: 'Kinematics', progress: {} },
-      { id: 'ch2', name: 'Laws of Motion', progress: {} }
-    ]
-  },
-  {
-    id: 's2',
-    name: 'Chemistry',
-    chapters: [
-      { id: 'ch3', name: 'Atomic Structure', progress: {} }
-    ]
-  }
+  { id: 's1', name: 'Physics', chapters: [{ id: 'ch1', name: 'Kinematics', progress: {} }, { id: 'ch2', name: 'Laws of Motion', progress: {} }] },
+  { id: 's2', name: 'Chemistry', chapters: [{ id: 'ch3', name: 'Atomic Structure', progress: {} }] }
 ];
 
 export default function App() {
@@ -34,62 +43,129 @@ export default function App() {
   const [activeSubjectId, setActiveSubjectId] = useState(INITIAL_SUBJECTS[0].id);
   const [isLoaded, setIsLoaded] = useState(false);
   const [showColManager, setShowColManager] = useState(false);
+  const [user, setUser] = useState(null);
 
   const [promptConfig, setPromptConfig] = useState(null);
   const [confirmConfig, setConfirmConfig] = useState(null);
 
+  // 1. Initialize Authentication
   useEffect(() => {
-    const saved = localStorage.getItem('prepMapData');
-    if (saved) {
-      try {
-        const parsed = JSON.parse(saved);
-        setColumns(parsed.columns || INITIAL_COLUMNS);
-        const loadedSubjects = parsed.subjects || INITIAL_SUBJECTS;
-        setSubjects(loadedSubjects);
-        if (loadedSubjects.length > 0) setActiveSubjectId(loadedSubjects[0].id);
-      } catch (e) {
-        console.error("Failed to load data");
+    const initAuth = async () => {
+      if (isCanvasEnv) {
+        if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+          await signInWithCustomToken(auth, __initial_auth_token);
+        } else {
+          await signInAnonymously(auth);
+        }
       }
-    }
-    setIsLoaded(true);
+    };
+    initAuth();
+
+    const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
+      setUser(currentUser);
+      if (!currentUser) {
+        // Fallback to local storage if logged out
+        const saved = localStorage.getItem('prepMapData_anon');
+        if (saved) {
+          try {
+            const parsed = JSON.parse(saved);
+            setColumns(parsed.columns || INITIAL_COLUMNS);
+            setSubjects(parsed.subjects || INITIAL_SUBJECTS);
+            if (parsed.subjects?.length > 0) setActiveSubjectId(parsed.subjects[0].id);
+          } catch (e) { console.error("Failed to load local data"); }
+        }
+        setIsLoaded(true);
+      }
+    });
+    return () => unsubscribe();
   }, []);
 
+  // 2. Sync Data from Firestore when logged in
   useEffect(() => {
-    if (isLoaded) {
-      localStorage.setItem('prepMapData', JSON.stringify({ columns, subjects }));
+    if (!user) return;
+
+    const userDocRef = isCanvasEnv
+      ? doc(db, 'artifacts', canvasAppId, 'users', user.uid, 'userdata', 'prepmap')
+      : doc(db, 'users', user.uid);
+
+    const unsubscribe = onSnapshot(userDocRef, (docSnap) => {
+      if (docSnap.exists()) {
+        const data = docSnap.data();
+        setColumns(data.columns || INITIAL_COLUMNS);
+        setSubjects(data.subjects || []);
+        if (data.subjects && data.subjects.length > 0) {
+          setActiveSubjectId(prev => data.subjects.find(s => s.id === prev) ? prev : data.subjects[0].id);
+        } else {
+          setActiveSubjectId(null);
+        }
+      } else {
+        // First time login - upload local data to cloud
+        setDoc(userDocRef, { columns, subjects });
+      }
+      setIsLoaded(true);
+    }, (err) => {
+      console.error("Firestore sync error:", err);
+      setIsLoaded(true);
+    });
+
+    return () => unsubscribe();
+  }, [user]);
+
+  // Master Sync Function: Updates state AND pushes to Firestore/Local Storage
+  const syncData = (newCols, newSubs) => {
+    setColumns(newCols);
+    setSubjects(newSubs);
+
+    if (user && (!isCanvasEnv || !user.isAnonymous)) {
+      const userDocRef = isCanvasEnv
+        ? doc(db, 'artifacts', canvasAppId, 'users', user.uid, 'userdata', 'prepmap')
+        : doc(db, 'users', user.uid);
+      setDoc(userDocRef, { columns: newCols, subjects: newSubs }, { merge: true });
+    } else {
+      localStorage.setItem('prepMapData_anon', JSON.stringify({ columns: newCols, subjects: newSubs }));
     }
-  }, [columns, subjects, isLoaded]);
-
-  const requestPrompt = (title, defaultValue, onComplete) => {
-    setPromptConfig({ title, value: defaultValue, onComplete });
-  };
-  const requestConfirm = (title, message, onConfirm) => {
-    setConfirmConfig({ title, message, onConfirm });
   };
 
+  const handleGoogleLogin = async () => {
+    try {
+      await signInWithPopup(auth, googleProvider);
+    } catch (error) {
+      console.error("Login failed:", error);
+    }
+  };
+
+  const handleLogout = () => {
+    signOut(auth);
+    setSubjects(INITIAL_SUBJECTS);
+    setColumns(INITIAL_COLUMNS);
+  };
+
+  const requestPrompt = (title, defaultValue, onComplete) => setPromptConfig({ title, value: defaultValue, onComplete });
+  const requestConfirm = (title, message, onConfirm) => setConfirmConfig({ title, message, onConfirm });
+
+  // --- Action Handlers (All use syncData) ---
   const addSubject = () => {
     requestPrompt('Enter subject name:', '', (name) => {
       if (!name) return;
       const newSubject = { id: generateId(), name, chapters: [] };
-      setSubjects([...subjects, newSubject]);
+      const newSubs = [...subjects, newSubject];
       setActiveSubjectId(newSubject.id);
+      syncData(columns, newSubs);
     });
   };
 
   const deleteSubject = (id) => {
     requestConfirm('Delete Subject', 'Are you sure you want to delete this subject and all its chapters?', () => {
       const filtered = subjects.filter(s => s.id !== id);
-      setSubjects(filtered);
-      if (activeSubjectId === id) {
-        setActiveSubjectId(filtered.length > 0 ? filtered[0].id : null);
-      }
+      if (activeSubjectId === id) setActiveSubjectId(filtered.length > 0 ? filtered[0].id : null);
+      syncData(columns, filtered);
     });
   };
 
   const renameSubject = (id, currentName) => {
     requestPrompt('Rename subject:', currentName, (newName) => {
       if (newName && newName !== currentName) {
-        setSubjects(subjects.map(s => s.id === id ? { ...s, name: newName } : s));
+        syncData(columns, subjects.map(s => s.id === id ? { ...s, name: newName } : s));
       }
     });
   };
@@ -97,7 +173,7 @@ export default function App() {
   const addChapter = (subjectId) => {
     requestPrompt('Enter chapter name:', '', (name) => {
       if (!name) return;
-      setSubjects(subjects.map(s => {
+      syncData(columns, subjects.map(s => {
         if (s.id !== subjectId) return s;
         return { ...s, chapters: [...s.chapters, { id: generateId(), name, progress: {} }] };
       }));
@@ -105,7 +181,7 @@ export default function App() {
   };
 
   const deleteChapter = (subjectId, chapterId) => {
-    setSubjects(subjects.map(s => {
+    syncData(columns, subjects.map(s => {
       if (s.id !== subjectId) return s;
       return { ...s, chapters: s.chapters.filter(c => c.id !== chapterId) };
     }));
@@ -114,28 +190,22 @@ export default function App() {
   const renameChapter = (subjectId, chapterId, currentName) => {
     requestPrompt('Rename chapter:', currentName, (newName) => {
       if (newName && newName !== currentName) {
-        setSubjects(subjects.map(s => {
+        syncData(columns, subjects.map(s => {
           if (s.id !== subjectId) return s;
-          return {
-            ...s,
-            chapters: s.chapters.map(c => c.id === chapterId ? { ...c, name: newName } : c)
-          };
+          return { ...s, chapters: s.chapters.map(c => c.id === chapterId ? { ...c, name: newName } : c) };
         }));
       }
     });
   };
 
   const toggleProgress = (subjectId, chapterId, colId) => {
-    setSubjects(subjects.map(s => {
+    syncData(columns, subjects.map(s => {
       if (s.id !== subjectId) return s;
       return {
         ...s,
         chapters: s.chapters.map(c => {
           if (c.id !== chapterId) return c;
-          return {
-            ...c,
-            progress: { ...c.progress, [colId]: !c.progress[colId] }
-          };
+          return { ...c, progress: { ...c.progress, [colId]: !c.progress[colId] } };
         })
       };
     }));
@@ -144,50 +214,18 @@ export default function App() {
   const calculateOverallProgress = () => {
     if (subjects.length === 0 || columns.length === 0) return 0;
     let totalTasks = 0, completedTasks = 0;
-    subjects.forEach(s => {
-      s.chapters.forEach(c => {
-        columns.forEach(col => {
-          totalTasks++;
-          if (c.progress[col.id]) completedTasks++;
-        });
-      });
-    });
+    subjects.forEach(s => s.chapters.forEach(c => columns.forEach(col => {
+      totalTasks++;
+      if (c.progress[col.id]) completedTasks++;
+    })));
     return totalTasks === 0 ? 0 : Math.round((completedTasks / totalTasks) * 100);
-  };
-
-  const handleExport = () => {
-    const dataStr = JSON.stringify({ columns, subjects });
-    const dataUri = 'data:application/json;charset=utf-8,'+ encodeURIComponent(dataStr);
-    const linkElement = document.createElement('a');
-    linkElement.setAttribute('href', dataUri);
-    linkElement.setAttribute('download', 'prepmap-backup.json');
-    linkElement.click();
-  };
-
-  const handleImport = (event) => {
-    const file = event.target.files[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      try {
-        const parsed = JSON.parse(e.target.result);
-        if (parsed.columns && parsed.subjects) {
-          setColumns(parsed.columns);
-          setSubjects(parsed.subjects);
-          if (parsed.subjects.length > 0) setActiveSubjectId(parsed.subjects[0].id);
-        }
-      } catch (err) {
-        console.error("Failed to parse file", err);
-      }
-    };
-    reader.readAsText(file);
-    event.target.value = null; // Reset input so same file can be imported again if needed
   };
 
   if (!isLoaded) return null;
 
   const activeSubject = subjects.find(s => s.id === activeSubjectId);
   const overallProgress = calculateOverallProgress();
+  const isLoggedIn = user && (!isCanvasEnv || !user.isAnonymous);
 
   return (
     <>
@@ -267,20 +305,25 @@ export default function App() {
                 </div>
               </div>
 
-              <label className="group flex items-center gap-2 px-4 py-3 bg-white/5 hover:bg-white/10 border border-white/10 rounded-2xl transition-all duration-300 active:scale-95 cursor-pointer" title="Import Data">
-                <Download size={18} className="text-gray-400 group-hover:text-blue-400 transition-colors" />
-                <span className="font-semibold text-sm hidden md:inline">Import</span>
-                <input type="file" accept=".json" onChange={handleImport} className="hidden" />
-              </label>
-
-              <button 
-                onClick={handleExport}
-                className="group flex items-center gap-2 px-4 py-3 bg-white/5 hover:bg-white/10 border border-white/10 rounded-2xl transition-all duration-300 active:scale-95"
-                title="Export Data"
-              >
-                <Upload size={18} className="text-gray-400 group-hover:text-green-400 transition-colors" />
-                <span className="font-semibold text-sm hidden md:inline">Export</span>
-              </button>
+              {isLoggedIn ? (
+                <button 
+                  onClick={handleLogout}
+                  className="group flex items-center gap-2 px-4 py-3 bg-red-500/10 hover:bg-red-500/20 border border-red-500/20 rounded-2xl transition-all duration-300 active:scale-95"
+                  title="Sign Out"
+                >
+                  <LogOut size={18} className="text-red-400" />
+                  <span className="font-semibold text-sm hidden md:inline text-red-400">Sign Out</span>
+                </button>
+              ) : (
+                <button 
+                  onClick={handleGoogleLogin}
+                  className="group flex items-center gap-2 px-4 py-3 bg-white/5 hover:bg-white/10 border border-white/10 rounded-2xl transition-all duration-300 active:scale-95"
+                  title="Sign In with Google"
+                >
+                  <LogIn size={18} className="text-blue-400" />
+                  <span className="font-semibold text-sm hidden md:inline">Sign In</span>
+                </button>
+              )}
               
               <button 
                 onClick={() => setShowColManager(true)}
@@ -355,7 +398,7 @@ export default function App() {
         {showColManager && (
           <ColumnManager 
             columns={columns} 
-            setColumns={setColumns} 
+            onUpdateColumns={(newCols) => syncData(newCols, subjects)} 
             onClose={() => setShowColManager(false)}
             requestPrompt={requestPrompt}
             requestConfirm={requestConfirm}
@@ -489,26 +532,26 @@ function SubjectCard({ subject, columns, onRename, onDelete, onAddChapter, onDel
   );
 }
 
-function ColumnManager({ columns, setColumns, onClose, requestPrompt, requestConfirm }) {
+function ColumnManager({ columns, onUpdateColumns, onClose, requestPrompt, requestConfirm }) {
   const [newColName, setNewColName] = useState('');
 
   const handleAdd = (e) => {
     e.preventDefault();
     if (!newColName.trim()) return;
-    setColumns([...columns, { id: generateId(), name: newColName.trim() }]);
+    onUpdateColumns([...columns, { id: generateId(), name: newColName.trim() }]);
     setNewColName('');
   };
 
   const handleRemove = (id) => {
     requestConfirm('Remove Column', 'Progress data for it will be hidden but kept. Proceed?', () => {
-      setColumns(columns.filter(c => c.id !== id));
+      onUpdateColumns(columns.filter(c => c.id !== id));
     });
   };
 
   const handleRename = (id, currentName) => {
     requestPrompt('Rename column:', currentName, (newName) => {
       if (newName && newName.trim() !== '') {
-        setColumns(columns.map(c => c.id === id ? { ...c, name: newName.trim() } : c));
+        onUpdateColumns(columns.map(c => c.id === id ? { ...c, name: newName.trim() } : c));
       }
     });
   };
