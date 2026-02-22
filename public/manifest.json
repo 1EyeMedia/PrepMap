@@ -1,18 +1,53 @@
 {
-"short_name": "PrepMap",
-"name": "PrepMap: Syllabus Tracker",
-"icons": [
-{
-"src": "https://i.ibb.co/rfs2sDK5/Whats-App-Image-2026-02-12-at-11-40-19-PM-removebg-preview.png",
-"sizes": "512x512",
-"type": "image/png",
-"purpose": "any maskable"
-}
-],
-"start_url": "/",
-"background_color": "#0a0a0f",
-"theme_color": "#0a0a0f",
-"display": "standalone",
-"scope": "/",
-"description": "Master your curriculum. Own your progress."
+  "id": "com.prepmap.syllabus.tracker",
+  "short_name": "PrepMap",
+  "name": "PrepMap: Syllabus Tracker",
+  "description": "Master your curriculum. Own your progress with a professional-grade matrix.",
+  "icons": [
+    {
+      "src": "https://i.ibb.co/rfs2sDK5/Whats-App-Image-2026-02-12-at-11-40-19-PM-removebg-preview.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "https://i.ibb.co/rfs2sDK5/Whats-App-Image-2026-02-12-at-11-40-19-PM-removebg-preview.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "https://i.ibb.co/rfs2sDK5/Whats-App-Image-2026-02-12-at-11-40-19-PM-removebg-preview.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "maskable"
+    },
+    {
+      "src": "https://i.ibb.co/rfs2sDK5/Whats-App-Image-2026-02-12-at-11-40-19-PM-removebg-preview.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ],
+  "start_url": "/",
+  "background_color": "#0a0a0f",
+  "theme_color": "#0a0a0f",
+  "display": "standalone",
+  "orientation": "portrait",
+  "scope": "/",
+  "categories": ["education", "productivity", "utilities"],
+  "screenshots": [
+    {
+      "src": "https://i.ibb.co/rfs2sDK5/Whats-App-Image-2026-02-12-at-11-40-19-PM-removebg-preview.png",
+      "sizes": "1080x1920",
+      "type": "image/png",
+      "form_factor": "narrow"
+    },
+    {
+      "src": "https://i.ibb.co/rfs2sDK5/Whats-App-Image-2026-02-12-at-11-40-19-PM-removebg-preview.png",
+      "sizes": "1920x1080",
+      "type": "image/png",
+      "form_factor": "wide"
+    }
+  ]
 }
