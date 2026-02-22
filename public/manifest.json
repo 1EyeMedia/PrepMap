@@ -1,25 +1,18 @@
 {
-  "background_color": "#ffffff",
-  "dir": "ltr",
-  "display": "fullscreen",
-  "name": "prepmap.vercel",
-  "orientation": "any",
-  "scope": "/",
-  "short_name": "prepmap.vercel",
-  "start_url": "/",
-  "theme_color": "#ffffff",
-  "icons": [
-    {
-      "src": "https://prepmap.vercel.app/vite.svg",
-      "type": "image/svg+xml",
-      "isSquare": false,
-      "isPng": false,
-      "isWebp": false,
-      "isJpg": false,
-      "width": 0,
-      "is512x512": false,
-      "is256x256": false,
-      "is192x192": false
-    }
-  ]
+"short_name": "PrepMap",
+"name": "PrepMap: Syllabus Tracker",
+"icons": [
+{
+"src": "https://i.ibb.co/rfs2sDK5/Whats-App-Image-2026-02-12-at-11-40-19-PM-removebg-preview.png",
+"sizes": "512x512",
+"type": "image/png",
+"purpose": "any maskable"
+}
+],
+"start_url": "/",
+"background_color": "#0a0a0f",
+"theme_color": "#0a0a0f",
+"display": "standalone",
+"scope": "/",
+"description": "Master your curriculum. Own your progress."
 }
