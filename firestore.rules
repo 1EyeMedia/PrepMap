@@ -1,0 +1,52 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // ===============================================================
+    // Assumed Data Model
+    // ===============================================================
+    //
+    // Collection: users
+    // Document ID: userId (matches auth.uid)
+    // Fields:
+    //   - columns: list of objects (required)
+    //   - subjects: list of objects (required)
+    //
+    // ===============================================================
+
+    // ===============================================================
+    // Helper Functions
+    // ===============================================================
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    function hasOnlyAllowedFields(fields) {
+      return request.resource.data.keys().hasOnly(fields);
+    }
+
+    function hasRequiredFields(fields) {
+      return request.resource.data.keys().hasAll(fields);
+    }
+
+    function isValidUserPrepData() {
+      return hasOnlyAllowedFields(['columns', 'subjects']) &&
+             hasRequiredFields(['columns', 'subjects']) &&
+             request.resource.data.columns is list &&
+             request.resource.data.columns.size() <= 100 &&
+             request.resource.data.subjects is list &&
+             request.resource.data.subjects.size() <= 500;
+    }
+
+    match /users/{userId} {
+      allow read: if isOwner(userId);
+      allow create: if isOwner(userId) && isValidUserPrepData();
+      allow update: if isOwner(userId) && isValidUserPrepData();
+      allow delete: if isOwner(userId);
+    }
+  }
+}

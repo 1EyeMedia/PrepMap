@@ -1,35 +1,17 @@
 import React, { useState, useEffect } from 'react';
+import { motion, AnimatePresence } from 'motion/react';
 import { 
   Plus, Trash2, Edit2, Settings, Check, X, BookOpen, 
   BarChart, Sparkles, LogIn, LogOut, AlertCircle, 
   Download, Upload 
 } from 'lucide-react';
-import { initializeApp } from 'firebase/app';
 import { 
-  getAuth, 
-  signInWithRedirect, 
-  getRedirectResult,
-  GoogleAuthProvider, 
+  signInWithPopup, 
   signOut, 
   onAuthStateChanged 
 } from 'firebase/auth';
-import { getFirestore, doc, setDoc, onSnapshot } from 'firebase/firestore';
-
-// --- Firebase Configuration (Verified from your screenshots) ---
-const firebaseConfig = {
-  apiKey: "AIzaSyD5oe40YjM_nQfYq_kkKgcXiI_cJ9Dti6A",
-  authDomain: "prepmap-4df1f.firebaseapp.com",
-  projectId: "prepmap-4df1f",
-  storageBucket: "prepmap-4df1f.firebasestorage.app",
-  messagingSenderId: "512816661626",
-  appId: "1:512816661626:web:45f1df91db043c7ddb4fc3",
-  measurementId: "G-GEH1MEQMME"
-};
-
-const app = initializeApp(firebaseConfig);
-const auth = getAuth(app);
-const db = getFirestore(app);
-const googleProvider = new GoogleAuthProvider();
+import { doc, setDoc, onSnapshot } from 'firebase/firestore';
+import { auth, db, googleProvider } from './firebase.js';
 
 const generateId = () => Math.random().toString(36).substr(2, 9);
 
@@ -39,6 +21,38 @@ const INITIAL_COLUMNS = [
   { id: 'c3', name: 'PYQs' },
   { id: 'c4', name: 'Mock Test' }
 ];
+
+const OperationType = {
+  CREATE: 'create',
+  UPDATE: 'update',
+  DELETE: 'delete',
+  LIST: 'list',
+  GET: 'get',
+  WRITE: 'write',
+};
+
+function handleFirestoreError(error, operationType, path) {
+  const errInfo = {
+    error: error instanceof Error ? error.message : String(error),
+    authInfo: {
+      userId: auth.currentUser?.uid,
+      email: auth.currentUser?.email,
+      emailVerified: auth.currentUser?.emailVerified,
+      isAnonymous: auth.currentUser?.isAnonymous,
+      tenantId: auth.currentUser?.tenantId,
+      providerInfo: auth.currentUser?.providerData.map(provider => ({
+        providerId: provider.providerId,
+        displayName: provider.displayName,
+        email: provider.email,
+        photoUrl: provider.photoURL
+      })) || []
+    },
+    operationType,
+    path
+  };
+  console.error('Firestore Error: ', JSON.stringify(errInfo));
+  throw new Error(JSON.stringify(errInfo));
+}
 
 export default function App() {
   const [columns, setColumns] = useState(INITIAL_COLUMNS);
@@ -54,14 +68,6 @@ export default function App() {
 
   // Auth Handling
   useEffect(() => {
-    getRedirectResult(auth).catch((error) => {
-      if (error.code === 'auth/api-key-not-valid') {
-        setErrorMsg("API Key Restricted: Go to Google Cloud Console > Credentials and remove restrictions for this key.");
-      } else if (error.code !== 'auth/popup-closed-by-user') {
-        setErrorMsg(`Login Error: ${error.message}`);
-      }
-    });
-
     const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
       setUser(currentUser);
       if (!currentUser) {
@@ -93,10 +99,13 @@ export default function App() {
           setActiveSubjectId(data.subjects[0].id);
         }
       } else {
-        setDoc(userDocRef, { columns, subjects });
+        setDoc(userDocRef, { columns, subjects }).catch(err => {
+          handleFirestoreError(err, OperationType.CREATE, `users/${user.uid}`);
+        });
       }
       setIsLoaded(true);
     }, (err) => {
+      handleFirestoreError(err, OperationType.GET, `users/${user.uid}`);
       setErrorMsg("Cloud Access Denied. Check Firestore Rules.");
       setIsLoaded(true);
     });
@@ -107,15 +116,23 @@ export default function App() {
     setColumns(newCols);
     setSubjects(newSubs);
     if (user) {
-      setDoc(doc(db, 'users', user.uid), { columns: newCols, subjects: newSubs }, { merge: true });
+      setDoc(doc(db, 'users', user.uid), { columns: newCols, subjects: newSubs }, { merge: true }).catch(err => {
+        handleFirestoreError(err, OperationType.UPDATE, `users/${user.uid}`);
+      });
     } else {
       localStorage.setItem('prepMapData_local', JSON.stringify({ columns: newCols, subjects: newSubs }));
     }
   };
 
-  const handleLogin = () => {
+  const handleLogin = async () => {
     setErrorMsg(null);
-    signInWithRedirect(auth, googleProvider);
+    try {
+      await signInWithPopup(auth, googleProvider);
+    } catch (error) {
+      if (error.code !== 'auth/popup-closed-by-user') {
+        setErrorMsg(`Login Error: ${error.message}`);
+      }
+    }
   };
 
   const handleLogout = () => {
@@ -183,289 +200,264 @@ export default function App() {
   })();
 
   return (
-    <>
-      {/* ORIGINAL PREMIUM UI STYLES RESTORED */}
-      <style>{`
-        @keyframes blob {
-          0% { transform: translate(0px, 0px) scale(1); }
-          33% { transform: translate(30px, -50px) scale(1.1); }
-          66% { transform: translate(-20px, 20px) scale(0.9); }
-          100% { transform: translate(0px, 0px) scale(1); }
-        }
-        .animate-blob { animation: blob 10s infinite; }
-        .animation-delay-2000 { animation-delay: 2s; }
-        .animation-delay-4000 { animation-delay: 4s; }
-        .glass-panel {
-          background: rgba(20, 20, 25, 0.4);
-          backdrop-filter: blur(24px);
-          -webkit-backdrop-filter: blur(24px);
-          border: 1px solid rgba(255, 255, 255, 0.08);
-          box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.3);
-        }
-        .text-gradient {
-          background: linear-gradient(to right, #60a5fa, #c084fc, #f472b6);
-          -webkit-background-clip: text;
-          -webkit-text-fill-color: transparent;
-        }
-        .custom-scrollbar::-webkit-scrollbar { height: 6px; width: 6px; }
-        .custom-scrollbar::-webkit-scrollbar-track { background: rgba(255,255,255,0.02); border-radius: 8px; }
-        .custom-scrollbar::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 8px; }
-      `}</style>
+    <div className="min-h-screen bg-[#09090b] text-zinc-200 font-sans relative overflow-hidden selection:bg-indigo-500/30">
+      {/* Deep Texture & Animated Background */}
+      <div className="fixed inset-0 pointer-events-none z-0">
+        <div className="absolute inset-0 bg-[url('https://grainy-gradients.vercel.app/noise.svg')] opacity-20 mix-blend-overlay"></div>
+        <div className="absolute top-[-20%] left-[-10%] w-[50vw] h-[50vw] bg-indigo-900/20 rounded-full mix-blend-screen filter blur-[100px] animate-pulse" style={{ animationDuration: '10s' }}></div>
+        <div className="absolute bottom-[-20%] right-[-10%] w-[50vw] h-[50vw] bg-violet-900/20 rounded-full mix-blend-screen filter blur-[100px] animate-pulse" style={{ animationDuration: '15s', animationDelay: '2s' }}></div>
+      </div>
 
-      <div className="min-h-screen bg-[#0a0a0f] text-gray-200 p-4 md:p-8 font-sans relative overflow-hidden selection:bg-purple-500/30">
+      <div className="max-w-7xl mx-auto p-4 md:p-8 space-y-8 relative z-10">
         
-        {/* ORIGINAL ANIMATED BACKGROUND BLOBS RESTORED */}
-        <div className="fixed inset-0 overflow-hidden pointer-events-none z-0">
-          <div className="absolute top-[-10%] left-[-10%] w-96 h-96 bg-purple-600/30 rounded-full mix-blend-screen filter blur-[120px] animate-blob"></div>
-          <div className="absolute top-[20%] right-[-10%] w-96 h-96 bg-blue-600/30 rounded-full mix-blend-screen filter blur-[120px] animate-blob animation-delay-2000"></div>
-          <div className="absolute bottom-[-20%] left-[20%] w-[30rem] h-[30rem] bg-pink-600/20 rounded-full mix-blend-screen filter blur-[120px] animate-blob animation-delay-4000"></div>
-          <div className="absolute inset-0 bg-[url('https://grainy-gradients.vercel.app/noise.svg')] opacity-20 mix-blend-overlay"></div>
-        </div>
-
-        <div className="max-w-7xl mx-auto space-y-8 relative z-10">
-          
+        <AnimatePresence>
           {errorMsg && (
-            <div className="bg-red-500/10 border border-red-500/20 p-4 rounded-2xl flex items-center justify-between text-red-400 animate-in fade-in slide-in-from-top-4">
+            <motion.div initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -20 }} className="bg-red-500/10 border border-red-500/20 p-4 rounded-2xl flex items-center justify-between text-red-400 shadow-lg backdrop-blur-md">
               <div className="flex items-center gap-3">
                 <AlertCircle size={20} />
-                <span className="text-sm font-medium">{errorMsg}</span>
+                <span className="text-sm font-bold tracking-wide">{errorMsg}</span>
               </div>
-              <button onClick={() => setErrorMsg(null)} className="p-1 hover:bg-white/5 rounded-lg"><X size={18}/></button>
-            </div>
+              <button onClick={() => setErrorMsg(null)} className="p-1.5 hover:bg-white/10 rounded-lg transition-colors"><X size={18}/></button>
+            </motion.div>
           )}
+        </AnimatePresence>
 
-          {/* Header with ORIGINAL BIG LOGO and proper sizing */}
-          <header className="glass-panel p-6 md:p-8 rounded-3xl flex flex-col md:flex-row justify-between items-start md:items-center gap-6 transition-all duration-500 hover:border-white/10">
-            <div className="flex items-center gap-4">
-              <div className="p-3 bg-white/5 rounded-2xl border border-white/10 shadow-[0_0_20px_rgba(192,132,252,0.15)]">
-                <BookOpen size={32} className="text-purple-400" />
-              </div>
-              <div>
-                <h1 className="text-3xl md:text-4xl font-extrabold tracking-tight flex items-center gap-3">
-                  <span className="text-gradient">PrepMap</span>
-                  <Sparkles size={24} className="text-pink-400 animate-pulse" />
-                </h1>
-                <p className="text-gray-400 mt-1 font-medium text-sm md:text-base">Master your curriculum. Own your progress.</p>
-                <div className="mt-3 flex items-center gap-3 opacity-80 hover:opacity-100 transition-opacity">
-                  <span className="text-[10px] text-gray-500 uppercase tracking-widest font-bold">Powered by</span>
-                  <img src="https://i.ibb.co/rfs2sDK5/Whats-App-Image-2026-02-12-at-11-40-19-PM-removebg-preview.png" alt="Brand Logo" className="h-12 md:h-16 object-contain filter grayscale hover:grayscale-0 transition-all duration-300" />
+        {/* Header */}
+        <motion.header initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="p-6 md:p-8 rounded-[2rem] flex flex-col md:flex-row justify-between items-start md:items-center gap-6 border border-white/5 bg-white/[0.02] shadow-2xl backdrop-blur-3xl">
+          <div className="flex items-center gap-5">
+            <div className="p-4 bg-gradient-to-br from-indigo-500/20 to-violet-500/20 rounded-2xl border border-white/10 shadow-[0_0_30px_rgba(99,102,241,0.2)]">
+              <BookOpen size={32} className="text-indigo-400" />
+            </div>
+            <div>
+              <h1 className="text-4xl md:text-5xl font-black tracking-tighter flex items-center gap-3 font-display text-transparent bg-clip-text bg-gradient-to-r from-white via-indigo-100 to-violet-300">
+                PrepMap
+              </h1>
+              <p className="text-zinc-400 mt-1 font-medium text-sm md:text-base tracking-wide">Master your curriculum. Own your progress.</p>
+            </div>
+          </div>
+          
+          <div className="flex flex-wrap items-center gap-3 w-full xl:w-auto">
+            <div className="flex-1 md:flex-none flex items-center gap-4 px-6 py-4 bg-black/40 rounded-2xl border border-white/5 mr-2 shadow-inner">
+              <BarChart size={24} className="text-indigo-400" />
+              <div className="flex flex-col w-32 md:w-48">
+                <div className="flex justify-between text-xs font-bold mb-2 uppercase tracking-wider">
+                  <span className="text-zinc-400">Overall</span>
+                  <span className="text-indigo-400">{overallProg}%</span>
+                </div>
+                <div className="w-full bg-white/10 rounded-full h-2 overflow-hidden">
+                  <motion.div 
+                    initial={{ width: 0 }} animate={{ width: `${overallProg}%` }} transition={{ duration: 1, ease: "easeOut" }}
+                    className="h-full bg-gradient-to-r from-indigo-500 to-violet-500 shadow-[0_0_15px_rgba(99,102,241,0.6)]"
+                  />
                 </div>
               </div>
             </div>
+
+            <label className="group flex items-center gap-2 px-5 py-4 bg-white/5 hover:bg-white/10 border border-white/10 rounded-2xl transition-all duration-300 active:scale-95 cursor-pointer shadow-lg" title="Import JSON">
+              <Upload size={20} className="text-zinc-400 group-hover:text-indigo-400 transition-colors" />
+              <span className="font-bold text-sm hidden md:inline tracking-wide">Import</span>
+              <input type="file" accept=".json" onChange={handleImport} className="hidden" />
+            </label>
+
+            <button onClick={handleExport} className="group flex items-center gap-2 px-5 py-4 bg-white/5 hover:bg-white/10 border border-white/10 rounded-2xl transition-all duration-300 active:scale-95 shadow-lg" title="Export JSON">
+              <Download size={20} className="text-zinc-400 group-hover:text-emerald-400 transition-colors" />
+              <span className="font-bold text-sm hidden md:inline tracking-wide">Export</span>
+            </button>
+
+            {user ? (
+              <button onClick={handleLogout} className="group flex items-center gap-2 px-5 py-4 bg-red-500/10 hover:bg-red-500/20 border border-red-500/20 rounded-2xl transition-all duration-300 active:scale-95 shadow-lg">
+                <LogOut size={20} className="text-red-400" />
+                <span className="font-bold text-sm hidden md:inline text-red-400 tracking-wide">Sign Out</span>
+              </button>
+            ) : (
+              <button onClick={handleLogin} className="group flex items-center gap-2 px-5 py-4 bg-indigo-500/10 hover:bg-indigo-500/20 border border-indigo-500/20 rounded-2xl transition-all duration-300 active:scale-95 shadow-lg">
+                <LogIn size={20} className="text-indigo-400" />
+                <span className="font-bold text-sm hidden md:inline text-indigo-400 tracking-wide">Sign In</span>
+              </button>
+            )}
             
-            <div className="flex flex-wrap items-center gap-3 w-full xl:w-auto">
-              <div className="flex-1 md:flex-none flex items-center gap-4 px-5 py-3 glass-panel rounded-2xl border-white/5 mr-2">
-                <BarChart size={20} className="text-blue-400" />
-                <div className="flex flex-col w-32 md:w-40">
-                  <div className="flex justify-between text-xs font-bold mb-1">
-                    <span className="text-gray-300">Overall</span>
-                    <span className="text-blue-400">{overallProg}%</span>
-                  </div>
-                  <div className="w-full bg-white/10 rounded-full h-1.5 overflow-hidden">
-                    <div 
-                      className="h-full bg-gradient-to-r from-blue-500 to-purple-500 shadow-[0_0_10px_rgba(168,85,247,0.5)] transition-all duration-1000 ease-out"
-                      style={{ width: `${overallProg}%` }}
-                    />
-                  </div>
-                </div>
-              </div>
-
-              {/* Exact Icons Matched: Import = Arrow Up, Export = Arrow Down */}
-              <label className="group flex items-center gap-2 px-4 py-3 bg-white/5 hover:bg-white/10 border border-white/10 rounded-2xl transition-all duration-300 active:scale-95 cursor-pointer" title="Import JSON">
-                <Upload size={18} className="text-gray-400 group-hover:text-blue-400" />
-                <span className="font-semibold text-sm hidden md:inline">Import</span>
-                <input type="file" accept=".json" onChange={handleImport} className="hidden" />
-              </label>
-
-              <button 
-                onClick={handleExport}
-                className="group flex items-center gap-2 px-4 py-3 bg-white/5 hover:bg-white/10 border border-white/10 rounded-2xl transition-all duration-300 active:scale-95"
-                title="Export JSON"
-              >
-                <Download size={18} className="text-gray-400 group-hover:text-green-400" />
-                <span className="font-semibold text-sm hidden md:inline">Export</span>
-              </button>
-
-              {user ? (
-                <button 
-                  onClick={handleLogout}
-                  className="group flex items-center gap-2 px-4 py-3 bg-red-500/10 hover:bg-red-500/20 border border-red-500/20 rounded-2xl transition-all duration-300 active:scale-95"
-                >
-                  <LogOut size={18} className="text-red-400" />
-                  <span className="font-semibold text-sm hidden md:inline text-red-400">Sign Out</span>
-                </button>
-              ) : (
-                <button 
-                  onClick={handleLogin}
-                  className="group flex items-center gap-2 px-4 py-3 bg-white/5 hover:bg-white/10 border border-white/10 rounded-2xl transition-all duration-300 active:scale-95"
-                >
-                  <LogIn size={18} className="text-blue-400" />
-                  <span className="font-semibold text-sm hidden md:inline">Sign In</span>
-                </button>
-              )}
-              
-              <button 
-                onClick={() => setShowColManager(true)}
-                className="group flex items-center gap-2 px-4 py-3 bg-white/5 hover:bg-white/10 border border-white/10 rounded-2xl transition-all duration-300 active:scale-95"
-              >
-                <Settings size={18} className="text-gray-400 group-hover:text-white" />
-                <span className="font-semibold text-sm hidden md:inline">Columns</span>
-              </button>
-            </div>
-          </header>
-
-          {/* Original Tab Navigation */}
-          <div className="flex items-center gap-2 overflow-x-auto custom-scrollbar pb-2">
-            {subjects.map(subject => (
-              <button
-                key={subject.id}
-                onClick={() => setActiveSubjectId(subject.id)}
-                className={`relative px-6 py-3 rounded-2xl font-semibold whitespace-nowrap transition-all duration-300 flex-shrink-0
-                  ${activeSubjectId === subject.id 
-                    ? 'bg-gradient-to-r from-purple-500/20 to-blue-500/20 text-white border border-purple-500/30 shadow-[0_0_20px_rgba(168,85,247,0.15)]' 
-                    : 'bg-white/5 text-gray-400 hover:text-gray-200 hover:bg-white/10 border border-transparent'
-                  }`}
-              >
-                {subject.name}
-              </button>
-            ))}
-            <button onClick={addSubject} className="group flex items-center gap-2 px-6 py-3 bg-white/5 hover:bg-white/10 border border-white/10 border-dashed rounded-2xl text-gray-400 transition-all">
-              <Plus size={18} /> <span className="font-medium">New Subject</span>
+            <button onClick={() => setShowColManager(true)} className="group flex items-center gap-2 px-5 py-4 bg-white/5 hover:bg-white/10 border border-white/10 rounded-2xl transition-all duration-300 active:scale-95 shadow-lg">
+              <Settings size={20} className="text-zinc-400 group-hover:text-white transition-colors" />
+              <span className="font-bold text-sm hidden md:inline tracking-wide">Columns</span>
             </button>
           </div>
+        </motion.header>
 
-          {/* Original Matrix Table */}
-          <div className="transition-all duration-500">
+        {/* Subjects Navigation */}
+        <motion.div layout className="flex items-center gap-3 overflow-x-auto custom-scrollbar pb-4 pt-2">
+          <AnimatePresence mode="popLayout">
+            {subjects.map(subject => (
+              <motion.button
+                layout
+                initial={{ opacity: 0, scale: 0.8 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.8 }}
+                key={subject.id}
+                onClick={() => setActiveSubjectId(subject.id)}
+                className={`relative px-7 py-4 rounded-2xl font-bold whitespace-nowrap transition-colors duration-300 flex-shrink-0 text-sm tracking-wide
+                  ${activeSubjectId === subject.id ? 'text-white' : 'text-zinc-500 hover:text-zinc-300 hover:bg-white/5 border border-transparent'}`}
+              >
+                {activeSubjectId === subject.id && (
+                  <motion.div layoutId="activeTab" className="absolute inset-0 bg-gradient-to-r from-indigo-500/20 to-violet-500/20 border border-indigo-500/30 rounded-2xl shadow-[0_0_20px_rgba(99,102,241,0.15)]" transition={{ type: "spring", bounce: 0.2, duration: 0.6 }} />
+                )}
+                <span className="relative z-10">{subject.name}</span>
+              </motion.button>
+            ))}
+          </AnimatePresence>
+          <motion.button layout onClick={addSubject} className="group flex items-center gap-2 px-7 py-4 bg-white/[0.02] hover:bg-white/10 border border-white/10 border-dashed rounded-2xl text-zinc-400 hover:text-white transition-all font-bold text-sm tracking-wide flex-shrink-0">
+            <Plus size={18} /> <span>New Subject</span>
+          </motion.button>
+        </motion.div>
+
+        {/* Main Content Area */}
+        <motion.div layout className="transition-all duration-500">
+          <AnimatePresence mode="wait">
             {activeSub ? (
-              <div className="glass-panel rounded-3xl overflow-hidden animate-in fade-in slide-in-from-bottom-4 duration-500">
+              <motion.div key={activeSub.id} initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -20 }} transition={{ duration: 0.4, ease: "easeOut" }} className="bg-black/40 border border-white/5 rounded-[2rem] overflow-hidden backdrop-blur-xl shadow-2xl">
                 <div className="p-6 md:p-8 flex flex-col md:flex-row justify-between items-start md:items-center gap-4 border-b border-white/5 bg-white/[0.02]">
                   <div className="flex items-center gap-4">
-                    <h2 className="text-2xl md:text-3xl font-bold text-white tracking-tight drop-shadow-md">{activeSub.name}</h2>
-                    <button onClick={() => requestPrompt('Rename subject:', activeSub.name, (newName) => syncData(columns, subjects.map(s => s.id === activeSub.id ? { ...s, name: newName } : s)))} className="p-2 text-gray-400 hover:text-white rounded-lg transition-all">
-                      <Edit2 size={16} />
+                    <h2 className="text-3xl md:text-4xl font-black text-white tracking-tight font-display">{activeSub.name}</h2>
+                    <button onClick={() => requestPrompt('Rename subject:', activeSub.name, (newName) => syncData(columns, subjects.map(s => s.id === activeSub.id ? { ...s, name: newName } : s)))} className="p-2.5 text-zinc-500 hover:text-white hover:bg-white/10 rounded-xl transition-all">
+                      <Edit2 size={18} />
                     </button>
                   </div>
-                  <button onClick={() => requestConfirm('Delete Subject', 'Are you sure?', () => syncData(columns, subjects.filter(s => s.id !== activeSub.id)))} className="group flex items-center gap-2 px-4 py-2 text-red-400 hover:bg-red-500/10 rounded-xl transition-all active:scale-95">
-                    <Trash2 size={16} />
-                    <span className="text-sm font-semibold">Delete Subject</span>
+                  <button onClick={() => requestConfirm('Delete Subject', 'Are you sure you want to delete this subject and all its modules?', () => syncData(columns, subjects.filter(s => s.id !== activeSub.id)))} className="group flex items-center gap-2 px-5 py-3 text-red-400 hover:bg-red-500/10 hover:text-red-300 rounded-xl transition-all font-bold text-sm">
+                    <Trash2 size={18} />
+                    <span>Delete Subject</span>
                   </button>
                 </div>
 
                 <div className="overflow-x-auto custom-scrollbar">
                   <table className="w-full text-left border-collapse min-w-max">
                     <thead>
-                      <tr className="border-b border-white/5 bg-black/20">
-                        <th className="p-6 font-semibold text-gray-400 w-80 uppercase tracking-wider text-xs">Chapter Module</th>
+                      <tr className="border-b border-white/5 bg-white/[0.01]">
+                        <th className="p-6 font-bold text-zinc-500 w-80 uppercase tracking-widest text-xs">Chapter Module</th>
                         {columns.map(col => (
-                          <th key={col.id} className="p-6 font-semibold text-gray-400 text-center w-32 uppercase tracking-wider text-xs">{col.name}</th>
+                          <th key={col.id} className="p-6 font-bold text-zinc-500 text-center w-32 uppercase tracking-widest text-xs">{col.name}</th>
                         ))}
-                        <th className="p-6 w-24 text-right uppercase tracking-wider text-xs text-gray-400">System</th>
+                        <th className="p-6 w-24 text-right uppercase tracking-widest text-xs text-zinc-500">System</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-white/[0.02]">
-                      {activeSub.chapters.map((chapter, i) => (
-                        <tr key={chapter.id} className="group hover:bg-white/[0.03] transition-colors duration-300">
-                          <td className="p-6 font-medium text-gray-200 flex items-center gap-3">
-                            <span className="text-gray-600 font-mono text-xs w-6">{String(i + 1).padStart(2, '0')}</span>
-                            <span className="truncate">{chapter.name}</span>
-                            <button onClick={() => requestPrompt('Rename chapter:', chapter.name, (newName) => syncData(columns, subjects.map(s => s.id === activeSub.id ? { ...s, chapters: s.chapters.map(c => c.id === chapter.id ? { ...c, name: newName } : c) } : s)))} className="text-gray-500 hover:text-blue-400 opacity-0 group-hover:opacity-100 transition-all p-1 bg-white/5 rounded-md">
-                              <Edit2 size={14} />
-                            </button>
-                          </td>
-                          {columns.map(col => {
-                            const isChecked = !!chapter.progress[col.id];
-                            return (
-                              <td key={col.id} className="p-4 text-center">
-                                <button onClick={() => toggleProgress(activeSub.id, chapter.id, col.id)} className={`relative w-8 h-8 mx-auto rounded-lg flex items-center justify-center transition-all duration-300 active:scale-75 ${isChecked ? 'bg-cyan-500 text-black shadow-[0_0_15px_rgba(6,182,212,0.6)]' : 'bg-white/5 border border-white/10'}`}>
-                                  {isChecked && <Check size={16} strokeWidth={4} />}
-                                </button>
-                              </td>
-                            );
-                          })}
-                          <td className="p-6 text-right">
-                            <button onClick={() => syncData(columns, subjects.map(s => s.id === activeSub.id ? {...s, chapters: s.chapters.filter(x => x.id !== chapter.id)} : s))} className="text-gray-600 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-all p-2 rounded-lg">
-                              <Trash2 size={16} />
-                            </button>
-                          </td>
-                        </tr>
-                      ))}
+                      <AnimatePresence>
+                        {activeSub.chapters.map((chapter, i) => (
+                          <motion.tr layout initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 20 }} transition={{ duration: 0.3, delay: i * 0.05 }} key={chapter.id} className="group hover:bg-white/[0.03] transition-colors duration-300">
+                            <td className="p-6 font-semibold text-zinc-200 flex items-center gap-4">
+                              <span className="text-zinc-600 font-mono text-sm w-6">{String(i + 1).padStart(2, '0')}</span>
+                              <span className="truncate text-lg">{chapter.name}</span>
+                              <button onClick={() => requestPrompt('Rename chapter:', chapter.name, (newName) => syncData(columns, subjects.map(s => s.id === activeSub.id ? { ...s, chapters: s.chapters.map(c => c.id === chapter.id ? { ...c, name: newName } : c) } : s)))} className="text-zinc-500 hover:text-indigo-400 opacity-0 group-hover:opacity-100 transition-all p-2 hover:bg-white/10 rounded-xl">
+                                <Edit2 size={16} />
+                              </button>
+                            </td>
+                            {columns.map(col => {
+                              const isChecked = !!chapter.progress[col.id];
+                              return (
+                                <td key={col.id} className="p-4 text-center">
+                                  <motion.button whileTap={{ scale: 0.8 }} onClick={() => toggleProgress(activeSub.id, chapter.id, col.id)} className={`relative w-10 h-10 mx-auto rounded-xl flex items-center justify-center transition-all duration-300 ${isChecked ? 'bg-indigo-500 text-white shadow-[0_0_20px_rgba(99,102,241,0.5)]' : 'bg-white/5 border border-white/10 hover:bg-white/10 hover:border-white/20'}`}>
+                                    <AnimatePresence>
+                                      {isChecked && (
+                                        <motion.div initial={{ scale: 0, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0, opacity: 0 }}>
+                                          <Check size={20} strokeWidth={4} />
+                                        </motion.div>
+                                      )}
+                                    </AnimatePresence>
+                                  </motion.button>
+                                </td>
+                              );
+                            })}
+                            <td className="p-6 text-right">
+                              <button onClick={() => syncData(columns, subjects.map(s => s.id === activeSub.id ? {...s, chapters: s.chapters.filter(x => x.id !== chapter.id)} : s))} className="text-zinc-600 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-all p-2.5 hover:bg-red-500/10 rounded-xl">
+                                <Trash2 size={18} />
+                              </button>
+                            </td>
+                          </motion.tr>
+                        ))}
+                      </AnimatePresence>
                     </tbody>
                   </table>
                 </div>
 
-                <div className="p-4 bg-black/20 border-t border-white/5">
-                  <button onClick={() => addChapter(activeSub.id)} className="w-full py-4 flex items-center justify-center gap-2 rounded-xl text-sm font-bold text-gray-400 hover:text-white hover:bg-white/5 border border-dashed border-white/10 transition-all">
-                    <Plus size={18} /> INITIALIZE NEW MODULE
+                <div className="p-4 bg-white/[0.01] border-t border-white/5">
+                  <button onClick={() => addChapter(activeSub.id)} className="w-full py-5 flex items-center justify-center gap-3 rounded-2xl text-sm font-bold text-zinc-500 hover:text-white hover:bg-white/5 border border-dashed border-white/10 transition-all tracking-widest uppercase">
+                    <Plus size={20} /> Initialize New Module
                   </button>
                 </div>
-              </div>
+              </motion.div>
             ) : (
-              <div className="glass-panel text-center py-24 rounded-3xl flex flex-col items-center">
-                <Sparkles size={48} className="text-purple-500/30 mb-6" />
-                <h3 className="text-2xl font-bold text-white mb-2">Initialize Subject</h3>
-                <p className="text-gray-400 mb-8">Ready to start tracking? Add your first subject above.</p>
-              </div>
+              <motion.div key="empty" initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.9 }} className="bg-black/40 border border-white/5 text-center py-32 rounded-[2rem] flex flex-col items-center backdrop-blur-xl shadow-2xl">
+                <motion.div animate={{ y: [0, -10, 0] }} transition={{ duration: 4, repeat: Infinity, ease: "easeInOut" }}>
+                  <Sparkles size={64} className="text-indigo-500/40 mb-8" />
+                </motion.div>
+                <h3 className="text-3xl font-black text-white mb-3 font-display tracking-tight">Initialize Subject</h3>
+                <p className="text-zinc-400 text-lg font-medium">Ready to start tracking? Add your first subject above.</p>
+              </motion.div>
             )}
-          </div>
-        </div>
+          </AnimatePresence>
+        </motion.div>
 
         {/* Column Manager Modal */}
-        {showColManager && (
-          <div className="fixed inset-0 bg-black/60 backdrop-blur-xl flex items-center justify-center p-4 z-40 animate-in fade-in duration-200">
-            <div className="glass-panel border-white/10 rounded-3xl shadow-2xl w-full max-w-md overflow-hidden scale-in duration-300">
-              <div className="p-6 border-b border-white/5 flex justify-between items-center bg-white/[0.02]">
-                <h3 className="font-bold text-xl text-white flex items-center gap-2"><Settings size={20} className="text-blue-400" /> Matrix Columns</h3>
-                <button onClick={() => setShowColManager(false)} className="text-gray-400 hover:text-white p-1 hover:bg-white/10 rounded-lg transition-all"><X size={20}/></button>
-              </div>
-              <div className="p-6 space-y-4">
-                <ul className="space-y-3 max-h-64 overflow-y-auto custom-scrollbar pr-2">
-                  {columns.map(col => (
-                    <li key={col.id} className="flex justify-between items-center bg-white/5 p-3 px-4 rounded-xl border border-white/5">
-                      <span className="font-semibold text-gray-200">{col.name}</span>
-                      <button onClick={() => syncData(columns.filter(x => x.id !== col.id), subjects)} className="text-gray-400 hover:text-red-400 p-2 hover:bg-red-500/10 rounded-lg"><Trash2 size={14}/></button>
-                    </li>
-                  ))}
-                </ul>
-                <form onSubmit={(e) => { e.preventDefault(); const n = e.target.elements[0].value; if(n) { syncData([...columns, {id: generateId(), name: n}], subjects); e.target.reset(); } }} className="flex gap-2 pt-4 border-t border-white/5">
-                  <input type="text" placeholder="New column name..." className="flex-1 px-4 py-3 bg-white/5 border border-white/10 rounded-xl focus:outline-none text-white"/>
-                  <button type="submit" className="bg-white/10 px-5 rounded-xl font-bold">Add</button>
-                </form>
-              </div>
-            </div>
-          </div>
-        )}
+        <AnimatePresence>
+          {showColManager && (
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 bg-black/80 backdrop-blur-2xl flex items-center justify-center p-4 z-40">
+              <motion.div initial={{ scale: 0.9, opacity: 0, y: 20 }} animate={{ scale: 1, opacity: 1, y: 0 }} exit={{ scale: 0.9, opacity: 0, y: 20 }} className="bg-zinc-950 border border-white/10 rounded-[2rem] shadow-2xl w-full max-w-md overflow-hidden">
+                <div className="p-6 md:p-8 border-b border-white/5 flex justify-between items-center bg-white/[0.02]">
+                  <h3 className="font-black text-2xl text-white flex items-center gap-3 font-display"><Settings size={24} className="text-indigo-400" /> Matrix Columns</h3>
+                  <button onClick={() => setShowColManager(false)} className="text-zinc-500 hover:text-white p-2 hover:bg-white/10 rounded-xl transition-all"><X size={20}/></button>
+                </div>
+                <div className="p-6 md:p-8 space-y-6">
+                  <ul className="space-y-3 max-h-64 overflow-y-auto custom-scrollbar pr-2">
+                    <AnimatePresence>
+                      {columns.map(col => (
+                        <motion.li layout initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 20 }} key={col.id} className="flex justify-between items-center bg-white/5 p-4 rounded-2xl border border-white/5">
+                          <span className="font-bold text-zinc-200 tracking-wide">{col.name}</span>
+                          <button onClick={() => syncData(columns.filter(x => x.id !== col.id), subjects)} className="text-zinc-500 hover:text-red-400 p-2 hover:bg-red-500/10 rounded-xl transition-colors"><Trash2 size={18}/></button>
+                        </motion.li>
+                      ))}
+                    </AnimatePresence>
+                  </ul>
+                  <form onSubmit={(e) => { e.preventDefault(); const n = e.target.elements[0].value; if(n) { syncData([...columns, {id: generateId(), name: n}], subjects); e.target.reset(); } }} className="flex gap-3 pt-6 border-t border-white/5">
+                    <input type="text" placeholder="New column name..." className="flex-1 px-5 py-4 bg-white/5 border border-white/10 rounded-2xl focus:outline-none focus:border-indigo-500/50 focus:ring-1 focus:ring-indigo-500/50 text-white font-medium transition-all"/>
+                    <button type="submit" className="bg-indigo-500 hover:bg-indigo-600 text-white px-6 rounded-2xl font-bold transition-colors shadow-lg shadow-indigo-500/25">Add</button>
+                  </form>
+                </div>
+              </motion.div>
+            </motion.div>
+          )}
+        </AnimatePresence>
 
         {/* Global Overlays */}
-        {promptConfig && (
-          <div className="fixed inset-0 bg-black/60 backdrop-blur-xl flex items-center justify-center p-4 z-50 animate-in fade-in duration-200">
-            <div className="glass-panel border-white/10 rounded-3xl shadow-2xl w-full max-w-sm overflow-hidden animate-in zoom-in-95 duration-200">
-              <div className="p-6">
-                <h3 className="font-bold text-xl text-white mb-4">{promptConfig.title}</h3>
-                <input autoFocus className="w-full px-4 py-3 bg-black/30 border border-white/10 rounded-xl focus:outline-none text-white" defaultValue={promptConfig.value} onKeyDown={(e) => { if(e.key === 'Enter') { promptConfig.onComplete(e.target.value); setPromptConfig(null); }}} />
-              </div>
-              <div className="p-4 border-t border-white/5 flex justify-end gap-3">
-                <button onClick={() => setPromptConfig(null)} className="px-5 py-2.5 text-gray-400">Cancel</button>
-                <button onClick={() => { promptConfig.onComplete(document.querySelector('input').value); setPromptConfig(null); }} className="px-6 py-2.5 bg-purple-600 text-white rounded-xl font-bold">Save</button>
-              </div>
-            </div>
-          </div>
-        )}
+        <AnimatePresence>
+          {promptConfig && (
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 bg-black/80 backdrop-blur-2xl flex items-center justify-center p-4 z-50">
+              <motion.div initial={{ scale: 0.9, opacity: 0, y: 20 }} animate={{ scale: 1, opacity: 1, y: 0 }} exit={{ scale: 0.9, opacity: 0, y: 20 }} className="bg-zinc-950 border border-white/10 rounded-[2rem] shadow-2xl w-full max-w-sm overflow-hidden">
+                <div className="p-6 md:p-8">
+                  <h3 className="font-black text-2xl text-white mb-6 font-display">{promptConfig.title}</h3>
+                  <input autoFocus className="w-full px-5 py-4 bg-white/5 border border-white/10 rounded-2xl focus:outline-none focus:border-indigo-500/50 focus:ring-1 focus:ring-indigo-500/50 text-white font-medium transition-all" defaultValue={promptConfig.value} onKeyDown={(e) => { if(e.key === 'Enter') { promptConfig.onComplete(e.target.value); setPromptConfig(null); }}} />
+                </div>
+                <div className="p-4 md:p-6 border-t border-white/5 flex justify-end gap-3 bg-white/[0.02]">
+                  <button onClick={() => setPromptConfig(null)} className="px-6 py-3 text-zinc-400 hover:text-white font-bold transition-colors">Cancel</button>
+                  <button onClick={() => { promptConfig.onComplete(document.querySelector('input').value); setPromptConfig(null); }} className="px-8 py-3 bg-indigo-500 hover:bg-indigo-600 text-white rounded-2xl font-bold transition-colors shadow-lg shadow-indigo-500/25">Save</button>
+                </div>
+              </motion.div>
+            </motion.div>
+          )}
+        </AnimatePresence>
 
-        {confirmConfig && (
-          <div className="fixed inset-0 bg-black/60 backdrop-blur-xl flex items-center justify-center p-4 z-50 animate-in fade-in duration-200">
-            <div className="glass-panel border-white/10 rounded-3xl shadow-2xl w-full max-w-sm overflow-hidden animate-in zoom-in-95 duration-200">
-              <div className="p-6">
-                <h3 className="font-bold text-xl text-white mb-2">{confirmConfig.title}</h3>
-                <p className="text-gray-400">{confirmConfig.message}</p>
-              </div>
-              <div className="p-4 border-t border-white/5 flex justify-end gap-3">
-                <button onClick={() => setConfirmConfig(null)} className="px-5 py-2.5 text-gray-400">Cancel</button>
-                <button onClick={() => { confirmConfig.onConfirm(); setConfirmConfig(null); }} className="px-6 py-2.5 bg-red-500/20 text-red-400 rounded-xl font-bold">Delete</button>
-              </div>
-            </div>
-          </div>
-        )}
+        <AnimatePresence>
+          {confirmConfig && (
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 bg-black/80 backdrop-blur-2xl flex items-center justify-center p-4 z-50">
+              <motion.div initial={{ scale: 0.9, opacity: 0, y: 20 }} animate={{ scale: 1, opacity: 1, y: 0 }} exit={{ scale: 0.9, opacity: 0, y: 20 }} className="bg-zinc-950 border border-white/10 rounded-[2rem] shadow-2xl w-full max-w-sm overflow-hidden">
+                <div className="p-6 md:p-8">
+                  <h3 className="font-black text-2xl text-white mb-3 font-display">{confirmConfig.title}</h3>
+                  <p className="text-zinc-400 font-medium leading-relaxed">{confirmConfig.message}</p>
+                </div>
+                <div className="p-4 md:p-6 border-t border-white/5 flex justify-end gap-3 bg-white/[0.02]">
+                  <button onClick={() => setConfirmConfig(null)} className="px-6 py-3 text-zinc-400 hover:text-white font-bold transition-colors">Cancel</button>
+                  <button onClick={() => { confirmConfig.onConfirm(); setConfirmConfig(null); }} className="px-8 py-3 bg-red-500 hover:bg-red-600 text-white rounded-2xl font-bold transition-colors shadow-lg shadow-red-500/25">Delete</button>
+                </div>
+              </motion.div>
+            </motion.div>
+          )}
+        </AnimatePresence>
       </div>
-    </>
+    </div>
   );
 }
